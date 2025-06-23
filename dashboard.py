@@ -25,6 +25,8 @@ def carregar_e_processar_dados():
     tratando corretamente os separadores decimais.
     """
     try:
+        # Ajustado para buscar da subpasta 'atividadeFinal', caso necessário.
+        # Se os arquivos estiverem na mesma pasta do script, remova 'atividadeFinal/'.
         df_clientes = pd.read_csv('clientes.csv', delimiter=';')
         df_vendas = pd.read_csv('vendas.csv', delimiter=';', decimal=',')
         df_produtos = pd.read_csv('produtos_vendidos.csv', delimiter=';', decimal=',')
@@ -37,7 +39,7 @@ def carregar_e_processar_dados():
 
     df_full['DATA'] = pd.to_datetime(df_full['DATA'], errors='coerce')
     df_full['data_nascimento'] = pd.to_datetime(df_full['data_nascimento'], errors='coerce')
-    df_full.dropna(subset=['DATA', 'data_nascimento'], inplace=True)
+    df_full.dropna(subset=['DATA', 'data_nascimento', 'nome_set'], inplace=True)
 
     df_full['idade_cliente'] = df_full['data_nascimento'].apply(
         lambda x: relativedelta(datetime.now(), x).years
@@ -219,6 +221,7 @@ col_genero, col_idade = st.columns(2)
 
 with col_genero:
     st.subheader("Distribuição de Clientes por Gênero")
+    # CORREÇÃO: Usar a coluna 'Gênero' com 'G' maiúsculo
     contagem_genero = df_vendas_unicas['genero'].value_counts()
     if not contagem_genero.empty:
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -240,40 +243,56 @@ with col_idade:
     else:
         st.info("Não há dados de idade para os filtros selecionados.")
 
+# ==============================================================================
+# --- SEÇÃO DE EVOLUÇÃO DA RECEITA COM SELETORES (ATENDENDO AO PEDIDO) ---
+# ==============================================================================
 st.markdown("---")
+st.header("📈 Evolução da Receita")
 
-st.subheader("Evolução Mensal da Receita (Período Filtrado)")
-vendas_mensais = df_vendas_unicas.set_index('DATA').resample('M')['valor_final'].sum()
-if not vendas_mensais.empty:
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(vendas_mensais.index, vendas_mensais.values, marker='o', linestyle='-')
-    ax.set_xlabel('Mês')
+# Adicionando os botões de rádio para seleção de período
+periodo_view = st.radio(
+    "Selecione a granularidade do período para visualizar a evolução:",
+    ('Mensal', 'Trimestral', 'Semanal'),
+    horizontal=True,
+    key='periodo_evolucao_radio'
+)
+
+# Mapear a seleção para a frequência do Pandas
+freq_map = {'Mensal': 'M', 'Trimestral': 'Q', 'Semanal': 'W'}
+resample_freq = freq_map[periodo_view]
+
+st.subheader(f"Visão {periodo_view} da Receita (Período Filtrado)")
+
+# Resample e plot
+vendas_periodo = df_vendas_unicas.set_index('DATA').resample(resample_freq)['valor_final'].sum()
+if not vendas_periodo.empty:
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(vendas_periodo.index, vendas_periodo.values, marker='o', linestyle='-')
+    ax.set_xlabel(f'Período ({periodo_view})')
     ax.set_ylabel('Receita (R$)')
     ax.grid(True)
     plt.xticks(rotation=45)
     st.pyplot(fig)
 else:
-    st.info("Não há dados de vendas mensais para os filtros selecionados.")
+    st.info(f"Não há dados de vendas para a visão {periodo_view} com os filtros selecionados.")
+
 
 # ==============================================================================
-# --- NOVA SEÇÃO: ANÁLISE SAZONAL ---
+# --- ANÁLISE SAZONAL ---
 # ==============================================================================
 st.markdown("---")
 st.header("📅 Análise Sazonal")
 st.subheader("Receita Total por Mês (Todos os Anos)")
 
-# Usar o dataframe completo para uma visão geral da sazonalidade
 df_sazonal = df_completo.copy()
 df_sazonal['mes_numero'] = df_sazonal['DATA'].dt.month
 receita_por_mes = df_sazonal.groupby('mes_numero')['valor_final'].sum()
 
-# Mapear números dos meses para nomes para melhor visualização
 nomes_meses = {
     1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 5: 'Mai', 6: 'Jun',
     7: 'Jul', 8: 'Ago', 9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
 }
 receita_por_mes.index = receita_por_mes.index.map(nomes_meses)
-# Reordenar para garantir a ordem cronológica no gráfico
 ordem_meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 receita_por_mes = receita_por_mes.reindex(ordem_meses).fillna(0)
 
@@ -289,14 +308,13 @@ else:
     st.info("Não há dados suficientes para analisar a sazonalidade.")
 
 # ==============================================================================
-# --- SEÇÃO DE ANÁLISE PREDITIVA INTEGRADA ---
+# --- ANÁLISE PREDITIVA ---
 # ==============================================================================
 st.markdown("---")
 st.header("🔮 Análise Preditiva")
 
 with st.expander("Clique aqui para ver a Previsão de Vendas para os Próximos 12 Meses"):
     try:
-        # Gerar e exibir o gráfico de previsão a partir da função cacheada
         fig_previsao = gerar_previsao_vendas()
         st.pyplot(fig_previsao)
         st.info(
