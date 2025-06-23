@@ -25,7 +25,6 @@ def carregar_e_processar_dados():
     tratando corretamente os separadores decimais.
     """
     try:
-        # Carrega os dados. Assumimos que a coluna 'genero' está em 'clientes.csv'
         df_clientes = pd.read_csv('clientes.csv', delimiter=';')
         df_vendas = pd.read_csv('vendas.csv', delimiter=';', decimal=',')
         df_produtos = pd.read_csv('produtos_vendidos.csv', delimiter=';', decimal=',')
@@ -33,14 +32,11 @@ def carregar_e_processar_dados():
         st.error(f"Erro: Arquivo .csv não encontrado. Verifique o caminho: {e.filename}")
         return None
 
-    # Merge das tabelas
     df_merged = pd.merge(df_vendas, df_produtos, on='venda_id', how='left')
     df_full = pd.merge(df_merged, df_clientes, on='cliente_id', how='left')
 
-    # Limpeza e Transformação
     df_full['DATA'] = pd.to_datetime(df_full['DATA'], errors='coerce')
     df_full['data_nascimento'] = pd.to_datetime(df_full['data_nascimento'], errors='coerce')
-
     df_full.dropna(subset=['DATA', 'data_nascimento'], inplace=True)
 
     df_full['idade_cliente'] = df_full['data_nascimento'].apply(
@@ -62,16 +58,12 @@ def carregar_e_processar_dados():
     return df_full
 
 
-# ==============================================================================
-# --- NOVA FUNÇÃO PARA ANÁLISE PREDITIVA ---
-# ==============================================================================
 @st.cache_data
 def gerar_previsao_vendas():
     """
     Carrega os dados de vendas, treina um modelo SARIMA e retorna
     um gráfico com a previsão de vendas para os próximos 12 meses.
     """
-    # Carregamento e preparação dos dados dentro da função
     df_vendas_pred = pd.read_csv('vendas.csv', delimiter=';', decimal=',')
     df_vendas_pred['DATA'] = pd.to_datetime(df_vendas_pred['DATA'], errors='coerce')
     df_vendas_pred['valor_final'] = pd.to_numeric(df_vendas_pred['valor_final'], errors='coerce')
@@ -79,17 +71,14 @@ def gerar_previsao_vendas():
     df_vendas_pred.set_index('DATA', inplace=True)
     ts_vendas = df_vendas_pred['valor_final'].resample('M').sum()
 
-    # Modelagem Preditiva com SARIMA
     modelo = SARIMAX(ts_vendas, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
     resultado = modelo.fit(disp=False)
 
-    # Previsão para os próximos 12 meses
     previsao_passos = 12
     previsao_resultado = resultado.get_forecast(steps=previsao_passos)
     previsao_media = previsao_resultado.predicted_mean
     intervalo_confianca = previsao_resultado.conf_int()
 
-    # Visualização dos Resultados
     fig, ax = plt.subplots(figsize=(15, 8))
     plt.style.use('seaborn-v0_8-whitegrid')
     ax.plot(ts_vendas.index, ts_vendas, label='Vendas Históricas', color='royalblue')
@@ -253,7 +242,7 @@ with col_idade:
 
 st.markdown("---")
 
-st.subheader("Evolução Mensal da Receita")
+st.subheader("Evolução Mensal da Receita (Período Filtrado)")
 vendas_mensais = df_vendas_unicas.set_index('DATA').resample('M')['valor_final'].sum()
 if not vendas_mensais.empty:
     fig, ax = plt.subplots(figsize=(12, 5))
@@ -265,6 +254,39 @@ if not vendas_mensais.empty:
     st.pyplot(fig)
 else:
     st.info("Não há dados de vendas mensais para os filtros selecionados.")
+
+# ==============================================================================
+# --- NOVA SEÇÃO: ANÁLISE SAZONAL ---
+# ==============================================================================
+st.markdown("---")
+st.header("📅 Análise Sazonal")
+st.subheader("Receita Total por Mês (Todos os Anos)")
+
+# Usar o dataframe completo para uma visão geral da sazonalidade
+df_sazonal = df_completo.copy()
+df_sazonal['mes_numero'] = df_sazonal['DATA'].dt.month
+receita_por_mes = df_sazonal.groupby('mes_numero')['valor_final'].sum()
+
+# Mapear números dos meses para nomes para melhor visualização
+nomes_meses = {
+    1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr', 5: 'Mai', 6: 'Jun',
+    7: 'Jul', 8: 'Ago', 9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'
+}
+receita_por_mes.index = receita_por_mes.index.map(nomes_meses)
+# Reordenar para garantir a ordem cronológica no gráfico
+ordem_meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+receita_por_mes = receita_por_mes.reindex(ordem_meses).fillna(0)
+
+if not receita_por_mes.empty:
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.barplot(x=receita_por_mes.index, y=receita_por_mes.values, ax=ax, palette='plasma')
+    ax.set_xlabel('Mês do Ano')
+    ax.set_ylabel('Receita Total Acumulada (R$)')
+    ax.set_title('Sazonalidade de Vendas: Receita Total por Mês', fontsize=12)
+    st.pyplot(fig)
+    st.info("Este gráfico mostra a soma da receita de cada mês, acumulada durante todo o período histórico dos dados.")
+else:
+    st.info("Não há dados suficientes para analisar a sazonalidade.")
 
 # ==============================================================================
 # --- SEÇÃO DE ANÁLISE PREDITIVA INTEGRADA ---
@@ -281,8 +303,6 @@ with st.expander("Clique aqui para ver a Previsão de Vendas para os Próximos 1
             "A previsão utiliza o histórico completo de vendas para estimar os valores futuros, independentemente dos filtros selecionados na barra lateral.")
     except Exception as e:
         st.error(f"Não foi possível gerar a previsão de vendas. Erro: {e}")
-
-# --- SEÇÃO DE RELATÓRIO/METODOLOGIA ---
 st.markdown("---")
 with st.expander("ℹ️ Sobre o Projeto e Metodologia"):
     st.markdown("""
